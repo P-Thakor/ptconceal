@@ -1,63 +1,82 @@
-use std::{fs::{File, OpenOptions}, io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
+use std::{
+    fs::{File, OpenOptions},
+    io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
+};
 
+use clap::{Parser, Subcommand};
 use walkdir::WalkDir;
-use zip::{write::FileOptions, CompressionMethod};
-use clap::{Parser, ValueEnum};
+use zip::{CompressionMethod, write::FileOptions};
 
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
-    directory: PathBuf,
-
-    #[arg(short, long)]
-    in_video: PathBuf,
-
-    #[arg(short, long)]
-    action: ConcealerAction
-
+#[derive(Parser)]
+#[command(name = "ptconcealer")]
+#[command(about="CLI app to conceal and reveal directories in and from videos", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    action: ConcealerAction,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Subcommand)]
 enum ConcealerAction {
-    Conceal,
-    Reveal
+    Conceal {
+        directory: PathBuf,
+        in_video: PathBuf,
+    },
+    Reveal {
+        from_video: PathBuf,
+    },
 }
 
-fn main() {
-    let source_dir = PathBuf::from("D:/Files/Projects/ptconceal/SGP");
-    let video_path = PathBuf::from("D:/Files/Projects/ptconceal/trial.mp4");
-    let output_dir = PathBuf::from("D:/Files/Projects/ptconceal");
+fn main() -> io::Result<()> {
+    let source_dir;
+    let video_path;
+    let output_dir;
 
-    let zip_path = match zip_directory(&source_dir) {
-        Ok(path) => {
-            println!("Successfully created: {}", path.display());
-            path
-        },
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            PathBuf::new()
+    let args = Cli::parse();
+
+    let concealer_result = match &args.action {
+        ConcealerAction::Conceal {
+            directory,
+            in_video,
+        } => {
+            source_dir = directory;
+            video_path = in_video;
+            let zip_path = match zip_directory(&source_dir) {
+                Ok(path) => {
+                    println!("Successfully created: {}", path.display());
+                    path
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    PathBuf::new()
+                }
+            };
+
+            match conceal_in_video(zip_path.as_path(), video_path.as_path()) {
+                Ok(()) => println!("Successfully appended zip file to the carrier video"),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
+        ConcealerAction::Reveal { from_video } => {
+            video_path = from_video;
+            if let Some(parent) = video_path.parent() {
+                output_dir = parent.to_path_buf();
+                match extract_zip_from_video(video_path.as_path(), output_dir.as_path()) {
+                    Ok(zip_start_pos) => {
+                        println!("Extracted zip file successfully.");
+                        match restore_video_file(video_path.as_path(), zip_start_pos) {
+                            Ok(()) => println!("Video file restored successfully."),
+                            Err(e) => eprintln!("Error restoring video file: {}", e),
+                        };
+                    }
+                    Err(e) => {
+                        eprintln!("Error encountered while extracting zip, {}", e);
+                    }
+                }
+            }
         }
     };
-
-    match conceal_in_video(zip_path.as_path(), video_path.as_path()) {
-        Ok(()) => println!("Successfully appended zip file to the carrier video"),
-        Err(e) => eprintln!("Error: {}", e),
-    }
-
-    match extract_zip_from_video(video_path.as_path(), output_dir.as_path()) {
-        Ok(zip_start_pos) => {
-            println!("Extracted zip file successfully.");
-            match restore_video_file(video_path.as_path(), zip_start_pos) {
-                Ok(()) => println!("Video file restored successfully."),
-                Err(e) => eprintln!("Error restoring video file: {}", e),
-            };
-        },
-        Err(e) => {
-            eprintln!("Error encountered while extracting zip, {}", e);
-        }
-    }
+    Ok(())
 }
 
 fn zip_directory(src_dir: &Path) -> zip::result::ZipResult<PathBuf> {
@@ -97,16 +116,14 @@ fn zip_directory(src_dir: &Path) -> zip::result::ZipResult<PathBuf> {
 }
 
 fn conceal_in_video(zip_path: &Path, video_path: &Path) -> io::Result<()> {
-    let vid_file = OpenOptions::new()
-        .append(true)
-        .open(video_path)?;
+    let vid_file = OpenOptions::new().append(true).open(video_path)?;
     let mut writer = BufWriter::new(vid_file);
 
     let zip_file = File::open(zip_path)?;
     let mut reader = BufReader::new(zip_file);
 
-    let mut buffer = [0u8; 8192];   // 8Kb chunk
-    
+    let mut buffer = [0u8; 8192]; // 8Kb chunk
+
     loop {
         let bytes_read = reader.read(&mut buffer)?;
         if bytes_read == 0 {
@@ -121,7 +138,7 @@ fn conceal_in_video(zip_path: &Path, video_path: &Path) -> io::Result<()> {
 
 fn extract_zip_from_video(video_path: &Path, output_path: &Path) -> io::Result<u64> {
     const ZIP_MAGIC_NUMBER: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
-    
+
     let mut reader = BufReader::new(File::open(video_path)?);
     let mut buffer = [0u8; 8192];
     let mut overlap = Vec::new();
@@ -176,14 +193,14 @@ fn extract_zip_from_video(video_path: &Path, output_path: &Path) -> io::Result<u
         pos_in_file += bytes_read as u64;
     }
 
-    Err(io::Error::new(io::ErrorKind::NotFound, "No Zip data found in video."))
-
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "No Zip data found in video.",
+    ))
 }
 
 fn restore_video_file(video_path: &Path, zip_start_pos: u64) -> io::Result<()> {
-    let video_file = OpenOptions::new()
-        .write(true)
-        .open(video_path)?;
+    let video_file = OpenOptions::new().write(true).open(video_path)?;
     video_file.set_len(zip_start_pos)?;
     Ok(())
 }
