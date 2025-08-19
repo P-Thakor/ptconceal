@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
@@ -18,10 +18,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum ConcealerAction {
+    #[command(about="Provide the path to the directory to conceal and the path of video to conceal it in", long_about = None)]
     Conceal {
         directory: PathBuf,
         in_video: PathBuf,
     },
+    #[command(about="Provide the path to the video from which the directory needs to be extracted", long_about = None)]
     Reveal {
         from_video: PathBuf,
     },
@@ -30,11 +32,11 @@ enum ConcealerAction {
 fn main() -> io::Result<()> {
     let source_dir;
     let video_path;
-    let output_dir;
+    let mut output_dir;
 
     let args = Cli::parse();
 
-    let concealer_result = match &args.action {
+    match &args.action {
         ConcealerAction::Conceal {
             directory,
             in_video,
@@ -61,6 +63,7 @@ fn main() -> io::Result<()> {
             video_path = from_video;
             if let Some(parent) = video_path.parent() {
                 output_dir = parent.to_path_buf();
+                output_dir.push("ptconceal_extracted");
                 match extract_zip_from_video(video_path.as_path(), output_dir.as_path()) {
                     Ok(zip_start_pos) => {
                         println!("Extracted zip file successfully.");
@@ -133,6 +136,7 @@ fn conceal_in_video(zip_path: &Path, video_path: &Path) -> io::Result<()> {
     }
 
     writer.flush()?;
+    fs::remove_file(zip_path)?;
     Ok(())
 }
 
@@ -143,6 +147,11 @@ fn extract_zip_from_video(video_path: &Path, output_path: &Path) -> io::Result<u
     let mut buffer = [0u8; 8192];
     let mut overlap = Vec::new();
     let mut pos_in_file = 0u64;
+
+    if !output_path.exists() {
+        println!("Creating output directory: {}", output_path.display());
+        std::fs::create_dir_all(output_path)?;
+    }
 
     loop {
         let bytes_read = reader.read(&mut buffer)?;
