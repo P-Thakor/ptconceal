@@ -17,7 +17,8 @@ A command-line tool that **hides files and folders inside a video file** and ext
 
 ### Prerequisites
 
-You need **Rust** installed on your machine. If you don't have it yet:
+You need **Rust** installed on your machine if you want to build from scratch. If you don't, simply download my pre-compiled binary
+from [Releases](https://github.com/P-Thakor/ptconceal/releases) page. For installing Rust:
 
 1. Go to [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
 2. Follow the instructions for your OS (it's a single command on Linux/macOS)
