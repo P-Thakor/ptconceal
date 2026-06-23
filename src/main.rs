@@ -194,12 +194,14 @@ fn extract_zip_from_video(video_path: &Path, output_path: &Path) -> io::Result<u
     io::copy(&mut file, &mut writer)?;
     writer.flush()?;
 
-    // Validate and extract the archive
+    // Validate and extract the archive into a dedicated folder
     let zip_file = File::open(&output_file)?;
     let mut archive = zip::ZipArchive::new(zip_file)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Invalid zip: {}", e)))?;
 
-    archive.extract(output_path)?;
+    let revealed_dir = output_path.join("revealed_contents");
+    std::fs::create_dir_all(&revealed_dir)?;
+    archive.extract(&revealed_dir)?;
 
     std::fs::remove_file(output_file)?;
 
